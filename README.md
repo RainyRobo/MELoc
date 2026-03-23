@@ -1,390 +1,390 @@
-# Stereo Planar Localization (Minimal, Non-SLAM)
+# MELoc — Stereo Planar Localization
 
-中文与英文双语说明，面向最小可运行实现。
+<div align="center">
 
-- Core script: main.py
-- Scope: three images + camera intrinsics K + planar geometric solve
-- Not included: SLAM, VO pipelines, ROS, map optimization
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)](https://www.python.org/)
+[![OpenCV](https://img.shields.io/badge/OpenCV-4.8%2B-orange.svg)](https://opencv.org/)
+
+**Language** · [English](#overview) | [中文](#中文指南) 
+
+</div>
+
+Minimal stereo camera localization using planar geometric constraints.
 
 ---
 
-## 1. Chinese Guide
+## Quick Navigation
 
-### 1.1 项目简介
-本项目实现一个简化的双目视觉平面定位流程，输入为：
+- [🇬🇧 English Guide](#overview)
+- [🇨🇳 中文指南](#中文指南)
 
-- 左目图像 left_img
-- 右目图像 right_img
-- 查询图像 query_img
-- 相机内参矩阵 K
+---
 
-核心流程：
+<a name="overview"></a>
 
-1. ORB 特征提取与匹配（left-query, right-query）
-2. 通过 findEssentialMat + recoverPose 得到平移方向 tL, tR
-3. 将方向投影到 XOY 平面，仅使用 (tx, ty)
-4. 构建 4 个平面方程求解 (xL, yL, xR, yR)
-5. 输出双目中心 (x, y)
+## 📖 English Guide
 
-补充约束采用：yL - yR = 0（假设双目基线平行世界 X 轴）。
+### Overview
 
-### 1.2 用 uv 管理环境（从零开始）
+MELoc solves the camera localization problem on a plane using three input images (left, right, query) and known camera intrinsics. The method combines ORB feature matching, essential matrix decomposition, and planar geometric constraints to estimate the position of a stereo camera pair.
 
-#### Step A: 安装 uv（Linux）
-可选其一：
+**Design philosophy:** Minimal implementation — no SLAM, visual odometry pipelines, or map optimization. Intended for resource-constrained embedded environments.
 
-方式 1（官方安装脚本）：
+---
+
+### 📋 Contents (English)
+
+- [Installation](#installation-en)
+- [Usage](#usage-en)
+- [Parameters](#parameters-en)
+- [Mathematical Formulation](#math-en)
+- [Implementation Details](#implementation-en)
+- [Limitations](#limitations-en)
+- [License](#license-en)
+
+---
+
+<a name="installation-en"></a>
+
+### 📦 Installation
+
+#### Python Setup (Python 3.10+)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install numpy scipy opencv-python
+```
+
+#### Alternative: Using uv
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-方式 2（如果系统已有 pipx）：
-
-```bash
-pipx install uv
-```
-
-安装后确认：
-
-```bash
-uv --version
-```
-
-#### Step B: 在项目目录创建虚拟环境
-
-```bash
-cd /home/liuyu/project/MELoc
 uv venv .venv
-```
-
-#### Step C: 安装依赖
-
-```bash
 uv pip install --python .venv/bin/python numpy scipy opencv-python
 ```
 
-#### Step D: 可选激活
+---
+
+<a name="usage-en"></a>
+
+### 🚀 Usage
+
+#### Demo Mode
 
 ```bash
-source .venv/bin/activate
+python main.py --demo --seed 7
 ```
 
-> 说明：即使不激活，也可以直接使用 .venv/bin/python 运行。
-
-### 1.3 运行方式
-
-#### 方式 1：Demo（自动生成仿真数据并测试）
-
-```bash
-.venv/bin/python main.py --demo --demo_out demo_data --seed 7
-```
-
-运行后会在 demo_data 下生成：
-
-- left_demo.png
-- right_demo.png
-- query_demo.png
-
-并输出：
-
-- tL, tR（方向向量）
-- xL, yL, xR, yR
-- Stereo center (x, y)
+Generates synthetic images (`left_demo.png`, `right_demo.png`, `query_demo.png`) and outputs:
+- Translation directions $t_L, t_R$
+- Camera coordinates $(x_L, y_L, x_R, y_R)$
+- Stereo center $(x, y)$
 - Residual norm
-- Ground truth / Abs error / Oracle 对照结果（demo 模式）
+- Ground truth comparison
 
-#### 方式 2：真实输入模式
+#### Real Data Mode
 
 ```bash
-.venv/bin/python main.py \
-  --left /path/to/left.png \
-  --right /path/to/right.png \
-  --query /path/to/query.png \
+python main.py \
+  --left left.png \
+  --right right.png \
+  --query query.png \
   --K 700,0,480,0,700,320,0,0,1 \
   --xD 1.4 \
   --yD 1.0 \
-  --B 0.6 \
-  --init 0,0,1,0
+  --B 0.6
 ```
-
-### 1.4 输入参数解析
-
-- --left
-  - 左目图像路径（灰度读入）
-- --right
-  - 右目图像路径（灰度读入）
-- --query
-  - 查询图像路径（灰度读入）
-- --K
-  - 内参矩阵，9 个逗号分隔浮点数，按行主序
-  - 例如：fx,0,cx,0,fy,cy,0,0,1
-- --xD, --yD
-  - 查询相机在平面坐标系中的已知位置 CD=(xD,yD)
-- --B
-  - 双目基线长度
-- --init
-  - 求解初值 xL,yL,xR,yR，默认 0,0,1,0
-- --demo
-  - 启用自包含仿真数据与演示流程
-- --demo_out
-  - demo 图像输出目录，默认 demo_data
-- --seed
-  - demo 随机种子，默认 42
-
-### 1.5 输出解析
-
-标准输出关键字段：
-
-- tL (direction), tR (direction)
-  - recoverPose 返回并归一化后的平移方向（无绝对尺度）
-- xL, yL, xR, yR
-  - 求解出的左右相机平面坐标
-- Stereo center (x, y)
-  - 双目中心坐标，x=(xL+xR)/2, y=(yL+yR)/2
-- Residual norm
-  - 4 个约束方程残差范数
-
-demo 模式额外输出：
-
-- Ground truth
-- Abs error
-- Oracle solve / Oracle abs error
-
-### 1.6 数学模型（实现一致）
-
-未知量：xL, yL, xR, yR
-
-约束：
-
-1) tLy(xD - xL) - tLx(yD - yL) = 0
-
-2) tRy(xD - xR) - tRx(yD - yR) = 0
-
-3) (xL - xR)^2 + (yL - yR)^2 = B^2
-
-4) yL - yR = 0
-
-### 1.7 工程优化点
-
-- ORB + BFMatcher KNN 比值检验
-- 双向一致性匹配（mutual check）
-- F 矩阵 RANSAC 几何内点筛选（可回退）
-- least_squares + Huber loss + multi-start
-- 解分支筛选：xR > xL
-
-### 1.8 已知局限与建议
-
-- recoverPose 的 t 仅为方向，尺度不可观
-- 若纹理少、动态物体多、视差小，方向估计会不稳
-- 该简化模型依赖平面和安装假设，存在多解/镜像分支风险
-
-最小改进建议：
-
-1. 在真实系统中加入已知基线朝向角约束（替代 yL=yR）
-2. 多组初值并比较残差与先验一致性
-3. 对输入图像做畸变校正与曝光归一化
 
 ---
 
-## 2. English Guide
+<a name="parameters-en"></a>
 
-### 2.1 Overview
-This repository provides a minimal stereo planar localization pipeline.
+### 🔧 Parameters
 
-Inputs:
+| Parameter | Type | Description | Required |
+|-----------|------|-------------|----------|
+| `--left` | str | Left image path (grayscale) | Yes* |
+| `--right` | str | Right image path (grayscale) | Yes* |
+| `--query` | str | Query image path (grayscale) | Yes* |
+| `--K` | str | Camera intrinsics (9 floats, row-major) | Yes |
+| `--xD` | float | Query camera X coordinate | Yes |
+| `--yD` | float | Query camera Y coordinate | Yes |
+| `--B` | float | Stereo baseline length (m) | Yes |
+| `--init` | str | Initial values `xL,yL,xR,yR` (default: 0,0,1,0) | No |
+| `--demo` | flag | Enable demo mode | No |
+| `--demo_out` | str | Output directory for demo (default: demo_data) | No |
+| `--seed` | int | Random seed (default: 42) | No |
 
-- Left image (left_img)
-- Right image (right_img)
-- Query image (query_img)
-- Camera intrinsics matrix K
+*In demo mode, image parameters are not required
 
-Pipeline:
+---
 
-1. ORB feature extraction and matching (left-query, right-query)
-2. Essential matrix estimation and pose recovery via findEssentialMat + recoverPose
-3. Keep only planar direction components (tx, ty)
-4. Solve 4 planar equations for (xL, yL, xR, yR)
-5. Output stereo center (x, y)
+<a name="math-en"></a>
 
-The extra equation used here is yL - yR = 0, meaning the stereo baseline is parallel to the world X-axis.
+### 📐 Mathematical Formulation
 
-### 2.2 Environment Setup with uv
+#### Problem Statement
 
-#### Step A: Install uv (Linux)
-Option 1:
+Unknowns: $(x_L, y_L, x_R, y_R)$ — left and right camera coordinates on the plane
+
+System of equations:
+
+$$\begin{align}
+(1) & \quad t_{Ly}(x_D - x_L) - t_{Lx}(y_D - y_L) = 0 \\
+(2) & \quad t_{Ry}(x_D - x_R) - t_{Rx}(y_D - y_R) = 0 \\
+(3) & \quad (x_L - x_R)^2 + (y_L - y_R)^2 = B^2 \\
+(4) & \quad y_L - y_R = 0
+\end{align}$$
+
+Where:
+- $(x_D, y_D)$ — known query camera position
+- $t_L, t_R$ — translation directions from essential matrix decomposition
+- $B$ — stereo baseline length
+- Equation (4) assumes baseline is parallel to world X-axis
+
+#### Camera Intrinsics Format
+
+Camera matrix K is provided as 9 comma-separated values in row-major order:
+
+$$K = \begin{pmatrix} f_x & 0 & c_x \\ 0 & f_y & c_y \\ 0 & 0 & 1 \end{pmatrix}$$
+
+Example: `--K 700,0,480,0,700,320,0,0,1` represents $f_x = 700, c_x = 480, f_y = 700, c_y = 320$.
+
+---
+
+<a name="implementation-en"></a>
+
+### ⚙️ Implementation Details
+
+#### Algorithmic Pipeline
+
+1. **Feature Extraction**: ORB (3500 keypoints)
+2. **Feature Matching**: BFMatcher with KNN ratio test (threshold 0.75)
+3. **Consistency Check**: Bidirectional matching validation
+4. **Geometric Filtering**: F-matrix RANSAC (inlier threshold 1.0)
+5. **Pose Estimation**: `cv2.findEssentialMat` + `cv2.recoverPose`
+6. **Non-linear Optimization**: `scipy.optimize.least_squares` with Huber loss
+7. **Solution Selection**: Multi-start initialization, validated by $x_R > x_L$
+
+#### Robustness Mechanisms
+
+- KNN ratio test removes ambiguous matches
+- Bidirectional consistency reduces false positives
+- RANSAC eliminates geometric outliers
+- Huber loss downweights residual outliers
+- Multi-start prevents local minima entrapment
+
+---
+
+<a name="limitations-en"></a>
+
+### ⚠️ Limitations
+
+1. **No Absolute Scale**: `recoverPose` returns direction only, not magnitude
+2. **Texture Dependency**: Sparse features cause poor matching
+3. **Parallax Sensitivity**: Small baseline leads to unstable direction estimation
+4. **Planar Assumption**: Requires scene to satisfy planarity; multiple solutions possible
+5. **Fixed Baseline Orientation**: Equation (4) assumes known baseline direction
+
+#### Recommended Improvements
+
+1. Add hard baseline direction constraint (replace equation 4)
+2. Use multi-initialization with residual-based solution selection
+3. Apply lens distortion correction to input images
+4. Normalize image exposure before feature extraction
+5. Fuse with inertial or odometry prior constraints
+
+---
+
+<a name="license-en"></a>
+
+### 📄 License
+
+MIT License — see [LICENSE](LICENSE)
+
+---
+
+---
+
+<a name="中文指南"></a>
+
+## 📕 中文指南
+
+### 项目简介
+
+MELoc 是一个轻量级的立体视觉平面定位系统。该方案基于平面几何约束，使用三张输入图像（左目、右目、查询）和已知的相机内参，来估计立体相机对的位置。
+
+采用 ORB 特征匹配、本质矩阵分解和平面几何约束相结合的方法实现。
+
+**设计理念：** 最小化实现 — 无 SLAM、视觉里程计管道或地图优化。专为资源受限的嵌入式环境设计。
+
+---
+
+### 📋 目录（中文）
+
+- [环境配置](#环境配置)
+- [使用方法](#使用方法)
+- [参数说明](#参数说明)
+- [数学模型](#数学模型)
+- [实现细节](#实现细节)
+- [已知限制](#已知限制)
+- [许可证](#许可证-中文)
+
+---
+
+### 📦 环境配置
+
+#### Python 环境（Python 3.10+）
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install numpy scipy opencv-python
+```
+
+#### 替代方案：使用 uv
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-Option 2 (if pipx is available):
-
-```bash
-pipx install uv
-```
-
-Verify:
-
-```bash
-uv --version
-```
-
-#### Step B: Create virtual environment
-
-```bash
-cd /home/liuyu/project/MELoc
 uv venv .venv
-```
-
-#### Step C: Install dependencies
-
-```bash
 uv pip install --python .venv/bin/python numpy scipy opencv-python
 ```
 
-#### Step D: Optional activation
+---
+
+### 🚀 使用方法
+
+#### 演示模式
 
 ```bash
-source .venv/bin/activate
+python main.py --demo --seed 7
 ```
 
-### 2.3 How to Run
+自动生成合成图像（`left_demo.png`、`right_demo.png`、`query_demo.png`）并输出：
+- 平移方向 $t_L, t_R$
+- 相机坐标 $(x_L, y_L, x_R, y_R)$
+- 双目中心 $(x, y)$
+- 残差范数
+- 真值对比
 
-#### Mode 1: Demo mode (synthetic data + full test)
-
-```bash
-.venv/bin/python main.py --demo --demo_out demo_data --seed 7
-```
-
-Outputs generated demo images:
-
-- left_demo.png
-- right_demo.png
-- query_demo.png
-
-And prints:
-
-- direction vectors tL, tR
-- solved xL, yL, xR, yR
-- stereo center (x, y)
-- residual norm
-- ground truth / abs error / oracle comparison (demo mode)
-
-#### Mode 2: Real input mode
+#### 实际数据模式
 
 ```bash
-.venv/bin/python main.py \
-  --left /path/to/left.png \
-  --right /path/to/right.png \
-  --query /path/to/query.png \
+python main.py \
+  --left left.png \
+  --right right.png \
+  --query query.png \
   --K 700,0,480,0,700,320,0,0,1 \
   --xD 1.4 \
   --yD 1.0 \
-  --B 0.6 \
-  --init 0,0,1,0
-```
-
-### 2.4 Argument Reference
-
-- --left: path to left image
-- --right: path to right image
-- --query: path to query image
-- --K: 9 comma-separated values (row-major), e.g. fx,0,cx,0,fy,cy,0,0,1
-- --xD, --yD: known planar position of query camera CD=(xD,yD)
-- --B: stereo baseline length
-- --init: initial guess xL,yL,xR,yR, default 0,0,1,0
-- --demo: run synthetic self-contained demo
-- --demo_out: directory for generated demo images
-- --seed: random seed for demo generation
-
-### 2.5 Output Reference
-
-Main outputs:
-
-- tL (direction), tR (direction): unit translation directions from recoverPose
-- xL, yL, xR, yR: solved planar camera coordinates
-- Stereo center (x, y): midpoint of left/right camera coordinates
-- Residual norm: norm of equation residuals
-
-Additional outputs in demo mode:
-
-- Ground truth
-- Abs error
-- Oracle solve / Oracle abs error
-
-### 2.6 Equations Used
-
-Unknowns: xL, yL, xR, yR
-
-1) tLy(xD - xL) - tLx(yD - yL) = 0
-
-2) tRy(xD - xR) - tRx(yD - yR) = 0
-
-3) (xL - xR)^2 + (yL - yR)^2 = B^2
-
-4) yL - yR = 0
-
-### 2.7 Practical Notes
-
-- recoverPose translation is direction-only (scale ambiguous)
-- Results can degrade under low texture, repeated patterns, or weak baseline geometry
-- The minimal model is assumption-driven and may admit mirror/degenerate solutions
-
-Recommended minimal upgrades:
-
-1. Replace yL=yR with a known baseline heading constraint
-2. Keep multi-start and residual-based branch validation
-3. Use undistorted images and consistent exposure
-
----
-
-## 3. Quick Command Summary
-
-```bash
-# 1) Create env
-uv venv .venv
-
-# 2) Install deps
-uv pip install --python .venv/bin/python numpy scipy opencv-python
-
-# 3) Run demo
-.venv/bin/python main.py --demo --demo_out demo_data --seed 7
+  --B 0.6
 ```
 
 ---
 
-## 4. Open-Source Readiness Checklist
+### 🔧 参数说明
 
-This repository now includes standard open-source project files:
+| 参数 | 类型 | 说明 | 必需 |
+|------|------|------|------|
+| `--left` | str | 左目图像路径（灰度） | 是* |
+| `--right` | str | 右目图像路径（灰度） | 是* |
+| `--query` | str | 查询图像路径（灰度） | 是* |
+| `--K` | str | 相机内参（9个浮点数，行主序） | 是 |
+| `--xD` | float | 查询相机 X 坐标 | 是 |
+| `--yD` | float | 查询相机 Y 坐标 | 是 |
+| `--B` | float | 立体基线长度（米） | 是 |
+| `--init` | str | 初值 `xL,yL,xR,yR`（默认：0,0,1,0） | 否 |
+| `--demo` | flag | 启用演示模式 | 否 |
+| `--demo_out` | str | 演示输出目录（默认：demo_data） | 否 |
+| `--seed` | int | 随机种子（默认：42） | 否 |
 
-- License: LICENSE (MIT)
-- Build and package metadata: pyproject.toml
-- Contribution guide: CONTRIBUTING.md
-- Code of conduct: CODE_OF_CONDUCT.md
-- Security policy: SECURITY.md
-- Changelog: CHANGELOG.md
-- Citation metadata: CITATION.cff
-- Issue templates: .github/ISSUE_TEMPLATE/
-- PR template: .github/pull_request_template.md
-- Editor consistency: .editorconfig
-- Ignore rules: .gitignore
-
-### Maintainer Notes
-
-- Replace placeholder repository links in pyproject.toml and CITATION.cff.
-- Keep CHANGELOG.md updated for every user-visible change.
-- Tag releases with semantic versions, for example v0.1.0.
+*演示模式下不需要提供实际图像参数
 
 ---
 
-## 5. Suggested Release Flow
+### 📐 数学模型
 
-1. Update CHANGELOG.md under Unreleased.
-2. Run demo validation:
-  .venv/bin/python main.py --demo --demo_out demo_data --seed 7
-3. Bump version in pyproject.toml and CITATION.cff.
-4. Commit with a release message.
-5. Create a git tag and publish a release note.
+#### 问题陈述
 
-This keeps documentation, code, and metadata consistent for external users.
+未知量：$(x_L, y_L, x_R, y_R)$ — 左右相机在平面上的坐标
+
+方程组：
+
+$$\begin{align}
+(1) & \quad t_{Ly}(x_D - x_L) - t_{Lx}(y_D - y_L) = 0 \\
+(2) & \quad t_{Ry}(x_D - x_R) - t_{Rx}(y_D - y_R) = 0 \\
+(3) & \quad (x_L - x_R)^2 + (y_L - y_R)^2 = B^2 \\
+(4) & \quad y_L - y_R = 0
+\end{align}$$
+
+其中：
+- $(x_D, y_D)$ — 查询相机的已知位置
+- $t_L, t_R$ — 从本质矩阵分解得到的平移方向
+- $B$ — 立体基线长度
+- 方程(4)假设基线平行于世界 X 轴
+
+#### 相机内参格式
+
+相机矩阵 K 以行主序的 9 个逗号分隔值提供：
+
+$$K = \begin{pmatrix} f_x & 0 & c_x \\ 0 & f_y & c_y \\ 0 & 0 & 1 \end{pmatrix}$$
+
+示例：`--K 700,0,480,0,700,320,0,0,1` 表示 $f_x = 700, c_x = 480, f_y = 700, c_y = 320$。
+
+---
+
+### ⚙️ 实现细节
+
+#### 算法流程
+
+1. **特征提取**：ORB（3500 个关键点）
+2. **特征匹配**：BFMatcher + KNN 比值检验（阈值 0.75）
+3. **一致性检查**：双向匹配验证
+4. **几何筛选**：F 矩阵 RANSAC（内点阈值 1.0）
+5. **位姿估计**：`cv2.findEssentialMat` + `cv2.recoverPose`
+6. **非线性优化**：`scipy.optimize.least_squares` + Huber 损失函数
+7. **解选择**：多初值启动，通过 $x_R > x_L$ 验证
+
+#### 鲁棒性机制
+
+- KNN 比值检验去除歧义匹配
+- 双向一致性检查减少假正样本
+- RANSAC 消除几何外点
+- Huber 损失函数抑制残差外点
+- 多初值避免局部最小值
+
+---
+
+### ⚠️ 已知限制
+
+1. **无绝对尺度**：`recoverPose` 仅返回方向，不包含大小
+2. **纹理依赖性**：稀疏特征导致匹配不佳
+3. **视差敏感性**：小基线导致方向估计不稳定
+4. **平面假设**：场景必须满足平面约束，可能存在多个解
+5. **固定基线方向**：方程(4)假设基线方向已知
+
+#### 改进建议
+
+1. 添加基线方向硬约束（替换方程4）
+2. 使用多初值启动并通过残差选择最优解
+3. 对输入图像进行透镜畸变校正
+4. 在特征提取前进行图像曝光归一化
+5. 融合惯性或里程计先验约束
+
+---
+
+<a name="许可证-中文"></a>
+
+### 📄 许可证
+
+MIT 许可证 — 详见 [LICENSE](LICENSE)
+
+---
+
+<div align="center">
+
+**Copyright © 2025 MELoc Contributors**
+
+</div>

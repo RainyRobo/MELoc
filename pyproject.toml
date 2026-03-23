@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meloc"
+version = "0.1.0"
+description = "Minimal stereo planar localization using ORB, Essential matrix, and planar geometric constraints"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "MELoc Contributors" }
+]
+keywords = ["computer-vision", "stereo", "localization", "opencv", "geometry"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Image Processing",
+]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "opencv-python>=4.8",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/meloc"
+Repository = "https://github.com/your-org/meloc"
+Issues = "https://github.com/your-org/meloc/issues"
+
+[project.scripts]
+meloc = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = []

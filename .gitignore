@@ -25,10 +25,10 @@ htmlcov/
 .idea/
 
 # Local data outputs
-demo_data/
-*.png
-*.jpg
-*.jpeg
+#demo_data/
+#*.png
+#*.jpg
+#*.jpeg
 
 # OS files
 .DS_Store
